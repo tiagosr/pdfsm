@@ -22,6 +22,7 @@ typedef struct _transition_obj t_transition_obj;
 struct _fsm_obj {
     t_object x_obj;
     t_symbol *current_state;
+    t_state_obj *current_state_obj;
     t_inlet *state_change;
     t_outlet *out_port;
 };
@@ -33,6 +34,7 @@ struct _state_obj {
     bool active;
     t_inlet *in_transition_port;
     t_outlet *out_port;
+    t_outlet *msg_port;
 };
 
 struct _transition_obj {
@@ -47,7 +49,8 @@ static void *fsm_new(t_symbol *first_state)
 {
     t_fsm_obj *fsm = (t_fsm_obj *)pd_new(fsm_class);
     fsm->current_state = first_state;
-    fsm->state_change = inlet_new(&fsm->x_obj, &fsm->x_obj.ob_pd, &s_anything, switch_state);
+    fsm->current_state_obj = NULL;
+    fsm->state_change = inlet_new(&fsm->x_obj, &fsm->x_obj.ob_pd, &s_symbol, switch_state);
     fsm->out_port = outlet_new(&fsm->x_obj, &s_list);
     return (void *)fsm;
 }
@@ -58,18 +61,23 @@ static void fsm_destroy(t_fsm_obj *fsm)
     inlet_free(fsm->state_change);
 }
 
-static void fsm_bang(t_fsm_obj *fsm) {
-    // pass thru
-    t_atom *params = getbytes(sizeof(t_atom)*2);
-    SETSYMBOL(params, fsm->current_state);
-    SETPOINTER(params+1, (void*)fsm);
-    outlet_anything(fsm->out_port, fsm_discover, 2, params);
-    freebytes(params, sizeof(t_atom)*2);
-    outlet_bang(fsm->out_port);
+static void fsm_anything(t_fsm_obj *fsm, t_symbol *sym, int argc, t_atom *argv) {
+    if (!fsm->current_state_obj) {
+        fsm_switch_state(fsm, fsm->current_state);
+        if (!fsm->current_state_obj) {
+            error("FSM object couldn't find a state named %s", fsm->current_state->s_name);
+            return;
+        }
+    }
+    // direct pass thru to current state
+    outlet_anything(fsm->current_state_obj->out_port, sym, argc, argv);
 }
 
+static t_fsm_obj *current_fsm = NULL;
 static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state)
 {
+    t_fsm_obj *bkp_fsm = current_fsm;
+    current_fsm = fsm;
     // exiting current state
     t_atom * args_list = getbytes(sizeof(t_atom));
     SETSYMBOL(args_list, fsm->current_state);
@@ -78,6 +86,7 @@ static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state)
     SETSYMBOL(args_list, state);
     outlet_anything(fsm->out_port, enter_state, 1, args_list);
     freebytes(args_list, sizeof(t_atom));
+    current_fsm = bkp_fsm;
 }
 
 /* [state] object */
@@ -116,17 +125,11 @@ static void state_do_transition(t_state_obj *state, t_symbol *transition) {
     }
 }
 
-static void state_discover(t_state_obj *state, t_fsm_obj *fsm, t_symbol *current_state) {
-    state->fsm = fsm;
-    if ((current_state == state->name) && (!state->active)) {
-        fsm_switch_state(fsm, current_state);
-    }
-}
-
-
-static void state_enter(t_state_obj *state, t_symbol *new_state)
+static void state_enter(t_state_obj *state, t_symbol *sym, int argc, t_atom *argv)
 {
+    t_symbol *new_state = atom_getsymbolarg(0, argc, argv);
     if (state->name == new_state) {
+        current_fsm->current_state_obj = state;
         state->active = true;
         outlet_symbol(state->out_port, gensym("active"));
     } else {
