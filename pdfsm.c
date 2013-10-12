@@ -10,10 +10,10 @@
 #include <stdbool.h>
 #include "m_pd.h"
 
-static t_class *fsm_class = NULL, *state_class = NULL, *transition_class = NULL;
+static t_class *fsm_class = NULL, *state_class = NULL;
 
 static t_symbol *switch_state = NULL, *exit_state = NULL, *enter_state = NULL;
-static t_symbol *do_transition = NULL, *fsm_discover = NULL;
+static t_symbol *do_transition = NULL;
 
 typedef struct _fsm_obj t_fsm_obj;
 typedef struct _state_obj t_state_obj;
@@ -61,6 +61,8 @@ static void fsm_destroy(t_fsm_obj *fsm)
     inlet_free(fsm->state_change);
 }
 
+static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state);
+
 static void fsm_anything(t_fsm_obj *fsm, t_symbol *sym, int argc, t_atom *argv) {
     if (!fsm->current_state_obj) {
         fsm_switch_state(fsm, fsm->current_state);
@@ -74,6 +76,7 @@ static void fsm_anything(t_fsm_obj *fsm, t_symbol *sym, int argc, t_atom *argv) 
 }
 
 static t_fsm_obj *current_fsm = NULL;
+
 static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state)
 {
     t_fsm_obj *bkp_fsm = current_fsm;
@@ -150,26 +153,6 @@ static void state_exit(t_state_obj *state, t_symbol *name)
     }
 }
 
-/* [transition] object */
-
-static void *transition_new(t_symbol *name)
-{
-    t_transition_obj *trans = (t_transition_obj *)pd_new(transition_class);
-    trans->name = name;
-    trans->out_port = outlet_new(&trans->x_obj, &s_list);
-    return (void *)trans;
-}
-
-static void transition_destroy(t_transition_obj *trans)
-{
-    outlet_free(trans->out_port);
-}
-
-static void transition_bang(t_transition_obj *trans)
-{
-    outlet_symbol(trans->out_port, do_transition);
-}
-
 
 /* setup */
 
@@ -177,17 +160,16 @@ void pdfsm_setup(void)
 {
     if (!fsm_class) {
         post("PD Finite State Machine objects\n(c) 2013 Tiago Rezende.");
-        switch_state = gensym("switch-state");
+        switch_state = gensym("switch");
         exit_state = gensym("exit-state");
         enter_state = gensym("enter-state");
-        do_transition = gensym("transition");
         
         fsm_class = class_new(gensym("fsm"),
                               (t_newmethod)fsm_new,
                               (t_method)fsm_destroy,
                               sizeof(t_fsm_obj), CLASS_DEFAULT,
                               A_SYMBOL, 0);
-        class_addbang(fsm_class, (t_method)fsm_bang);
+        class_addanything(fsm_class, (t_method)fsm_anything);
         class_addmethod(fsm_class, (t_method)fsm_switch_state,
                         switch_state, A_SYMBOL, 0);
         
@@ -204,12 +186,6 @@ void pdfsm_setup(void)
         class_addmethod(state_class, (t_method)state_do_transition,
                         do_transition, A_SYMBOL, 0);
         
-        transition_class = class_new(gensym("transition"),
-                                     (t_newmethod)transition_new,
-                                     (t_method)transition_destroy,
-                                     sizeof(t_transition_obj), CLASS_DEFAULT,
-                                     A_SYMBOL, 0);
-        class_addbang(transition_class, (t_method)transition_bang);
     }
 }
 
