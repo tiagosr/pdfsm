@@ -5,13 +5,13 @@ Finite State Machine for PD
 Objects for dealing with states and state transitions within a patch.
 ------------------------------------------------------------------------
 
-[start statename]/[fsm statename]
+[fsm statename]
 
 Creates a state machine that will control the current state, sending signals to the states on transitions.
 Connect to the desired states through the first outlet. The only parameter available is the name of the initial state.
 Any data sent to the first inlet is sent straight to the currently active state's first outlet.
 
-[state statename]
+[fstate statename]
 
 Creates a state with the given name (required). First inlet must be connected to a [start]/[fsm] object.
 Right outlet is the data sent to the state machine, if the state is active.

@@ -7,17 +7,17 @@
 //
 
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include "m_pd.h"
 
 static t_class *fsm_class = NULL, *state_class = NULL;
 
 static t_symbol *switch_state = NULL, *exit_state = NULL, *enter_state = NULL;
-static t_symbol *do_transition = NULL;
-
+static t_symbol *inactive = NULL, *active = NULL;
 typedef struct _fsm_obj t_fsm_obj;
 typedef struct _state_obj t_state_obj;
-typedef struct _transition_obj t_transition_obj;
 
 struct _fsm_obj {
     t_object x_obj;
@@ -29,18 +29,10 @@ struct _fsm_obj {
 
 struct _state_obj {
     t_object x_obj;
-    t_fsm_obj *fsm;
-    t_symbol *name;
+    char *name;
     bool active;
-    t_inlet *in_transition_port;
     t_outlet *out_port;
     t_outlet *msg_port;
-};
-
-struct _transition_obj {
-    t_object x_obj;
-    t_symbol *name;
-    t_outlet *out_port;
 };
 
 
@@ -67,7 +59,7 @@ static void fsm_anything(t_fsm_obj *fsm, t_symbol *sym, int argc, t_atom *argv) 
     if (!fsm->current_state_obj) {
         fsm_switch_state(fsm, fsm->current_state);
         if (!fsm->current_state_obj) {
-            error("FSM object couldn't find a state named %s", fsm->current_state->s_name);
+            error("FSM object couldn't find a state named %s.", fsm->current_state->s_name);
             return;
         }
     }
@@ -97,14 +89,17 @@ static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state)
 static void * state_new(t_symbol *sym)
 {
     t_state_obj *state = (t_state_obj *)pd_new(state_class);
-    state->name = sym;
+    state->name = strdup(sym->s_name);
+    //post("created state %s.", state->name);
     state->active = false;
-    state->out_port = outlet_new(&state->x_obj, &s_list);
+    state->out_port = outlet_new(&state->x_obj, &s_anything);
+    state->msg_port = outlet_new(&state->x_obj, &s_symbol);
     return (void *)state;
 }
 
 static void state_destroy(t_state_obj *state)
 {
+    free(state->name);
     outlet_free(state->out_port);
 }
 
@@ -114,30 +109,17 @@ static void state_bang(t_state_obj *state) {
     }
 }
 
-static void state_do_transition(t_state_obj *state, t_symbol *transition) {
-    if (state->active) {
-        //t_atom *arglist = getbytes(sizeof(t_atom));
-        //SETSYMBOL(arglist, transition);
-        //outlet_anything(state->out_port, do_transition, 1, arglist);
-        //freebytes(arglist, sizeof(t_atom));
-        if (!state->fsm) {
-            error("either no [fsm] object was connected or a transition was applied before first updating the [fsm] object.");
-        } else {
-            fsm_switch_state(state->fsm, state->name);
-        }
-    }
-}
-
-static void state_enter(t_state_obj *state, t_symbol *sym, int argc, t_atom *argv)
+static void state_enter(t_state_obj *state, t_symbol *new_state)
 {
-    t_symbol *new_state = atom_getsymbolarg(0, argc, argv);
-    if (state->name == new_state) {
+    //post("trying comparison between state %s and %s.", state->name, new_state->s_name);
+    if (strcmp(state->name, new_state->s_name) == 0) {
+        //post("entering state %s.", new_state->s_name);
         current_fsm->current_state_obj = state;
         state->active = true;
-        outlet_symbol(state->out_port, gensym("active"));
+        outlet_symbol(state->msg_port, active);
     } else {
         if (state->active) {
-            outlet_symbol(state->out_port, gensym("inactive"));
+            outlet_symbol(state->msg_port, inactive);
         }
         state->active = false;
     }
@@ -145,10 +127,10 @@ static void state_enter(t_state_obj *state, t_symbol *sym, int argc, t_atom *arg
 
 static void state_exit(t_state_obj *state, t_symbol *name)
 {
-    if (state->name == name) {
+    if (strcmp(state->name,name->s_name) == 0) {
         if (state->active) {
             state->active = false;
-            outlet_symbol(state->out_port, gensym("inactive"));
+            outlet_symbol(state->msg_port, inactive);
         }
     }
 }
@@ -163,6 +145,8 @@ void pdfsm_setup(void)
         switch_state = gensym("switch");
         exit_state = gensym("exit-state");
         enter_state = gensym("enter-state");
+        inactive = gensym("inactive");
+        active = gensym("active");
         
         fsm_class = class_new(gensym("fsm"),
                               (t_newmethod)fsm_new,
@@ -173,7 +157,7 @@ void pdfsm_setup(void)
         class_addmethod(fsm_class, (t_method)fsm_switch_state,
                         switch_state, A_SYMBOL, 0);
         
-        state_class = class_new(gensym("state"),
+        state_class = class_new(gensym("fstate"),
                                 (t_newmethod)state_new,
                                 (t_method)state_destroy,
                                 sizeof(t_state_obj), CLASS_DEFAULT,
@@ -183,12 +167,8 @@ void pdfsm_setup(void)
                         enter_state, A_SYMBOL, 0);
         class_addmethod(state_class, (t_method)state_exit,
                         exit_state, A_SYMBOL, 0);
-        class_addmethod(state_class, (t_method)state_do_transition,
-                        do_transition, A_SYMBOL, 0);
-        
     }
 }
 
 void fsm_setup(void) { pdfsm_setup(); }
-void state_setup(void) { pdfsm_setup(); }
-void transition_setup(void) { pdfsm_setup(); }
+void fstate_setup(void) { pdfsm_setup(); }
