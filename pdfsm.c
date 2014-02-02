@@ -7,8 +7,6 @@
 //
 
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdbool.h>
 #include "m_pd.h"
 
@@ -29,7 +27,7 @@ struct _fsm_obj {
 
 struct _state_obj {
     t_object x_obj;
-    char *name;
+    t_symbol *name;
     bool active;
     t_outlet *out_port;
     t_outlet *msg_port;
@@ -89,7 +87,7 @@ static void fsm_switch_state(t_fsm_obj *fsm, t_symbol *state)
 static void * state_new(t_symbol *sym)
 {
     t_state_obj *state = (t_state_obj *)pd_new(state_class);
-    state->name = strdup(sym->s_name);
+    state->name = sym;
     //post("created state %s.", state->name);
     state->active = false;
     state->out_port = outlet_new(&state->x_obj, &s_anything);
@@ -99,7 +97,6 @@ static void * state_new(t_symbol *sym)
 
 static void state_destroy(t_state_obj *state)
 {
-    free(state->name);
     outlet_free(state->out_port);
 }
 
@@ -112,7 +109,7 @@ static void state_bang(t_state_obj *state) {
 static void state_enter(t_state_obj *state, t_symbol *new_state)
 {
     //post("trying comparison between state %s and %s.", state->name, new_state->s_name);
-    if (strcmp(state->name, new_state->s_name) == 0) {
+    if (state->name == new_state) {
         //post("entering state %s.", new_state->s_name);
         current_fsm->current_state_obj = state;
         state->active = true;
@@ -127,7 +124,7 @@ static void state_enter(t_state_obj *state, t_symbol *new_state)
 
 static void state_exit(t_state_obj *state, t_symbol *name)
 {
-    if (strcmp(state->name,name->s_name) == 0) {
+    if (state->name == name) {
         if (state->active) {
             state->active = false;
             outlet_symbol(state->msg_port, inactive);
